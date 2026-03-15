@@ -73,7 +73,6 @@ jobs:
 
       - name: Deploy with Helm
         run: |
-          helm dependency update ./helm/petclinic-chart
           helm upgrade petclinic ./helm/petclinic-chart \
             --install \
             --wait=false \
