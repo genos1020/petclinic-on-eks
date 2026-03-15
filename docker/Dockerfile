@@ -1,10 +1,8 @@
 # Stage 1: Build
 FROM eclipse-temurin:17-jdk AS builder
 WORKDIR /app
-COPY app/pom.xml .
-COPY app/mvnw .
-COPY app/.mvn .mvn
-COPY app/src src
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth=1 https://github.com/spring-projects/spring-petclinic.git .
 RUN chmod +x mvnw && ./mvnw package -DskipTests
 
 # Stage 2: Run

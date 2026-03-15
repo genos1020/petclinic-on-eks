@@ -1,5 +1,4 @@
 .env
-app/
 helm/petclinic-chart/charts/
 **/.terraform/
 **/.terraform.lock.hcl
