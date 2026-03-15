@@ -1,0 +1,102 @@
+name: CI-CD
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  REPO_NAME: petclinic-app
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # -----------------------
+  # CI Job
+  # -----------------------
+  ci:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.set-tag.outputs.IMAGE_TAG }}
+      ecr-registry: ${{ steps.login-ecr.outputs.registry }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Image Tag
+        id: set-tag
+        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and Push Image to ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$REPO_NAME:${{ github.sha }} -f docker/Dockerfile .
+          docker push $ECR_REGISTRY/$REPO_NAME:${{ github.sha }}
+
+  # -----------------------
+  # CD Job
+  # -----------------------
+  cd:
+    name: CD - Deploy to EKS
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ vars.AWS_REGION }} \
+            --name devops-eks
+
+      - name: Deploy with Helm
+        run: |
+          helm dependency update ./helm/petclinic-chart
+          helm upgrade petclinic ./helm/petclinic-chart \
+            --install \
+            --atomic \
+            --timeout 5m \
+            --namespace default \
+            --set image.repository=${{ needs.ci.outputs.ecr-registry }}/$REPO_NAME \
+            --set image.tag=${{ needs.ci.outputs.image-tag }} \
+            --set postgresql.auth.password=${{ secrets.POSTGRES_PASSWORD }}
+
+      - name: Notify Telegram (Success)
+        if: success()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG=$(printf "✅ Deploy 成功\n倉庫：${{ github.repository }}\n分支：${{ github.ref_name }}\nCommit：${{ github.sha }}\n執行者：${{ github.actor }}\n🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MSG}"
+
+      - name: Notify Telegram (Failure)
+        if: failure()
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          MSG=$(printf "❌ Deploy 失敗\n倉庫：${{ github.repository }}\n分支：${{ github.ref_name }}\nCommit：${{ github.sha }}\n執行者：${{ github.actor }}\n🔗 ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}")
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${MSG}"

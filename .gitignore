@@ -3,3 +3,5 @@ app/
 helm/petclinic-chart/charts/
 **/.terraform/
 **/.terraform.lock.hcl
+**/terraform.tfstate
+**/terraform.tfstate.backup
