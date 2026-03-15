@@ -73,7 +73,7 @@ jobs:
           helm upgrade petclinic ./helm/petclinic-chart \
             --install \
             --atomic \
-            --timeout 5m \
+            --timeout 10m \
             --namespace default \
             --set image.repository=${{ needs.ci.outputs.ecr-registry }}/$REPO_NAME \
             --set image.tag=${{ needs.ci.outputs.image-tag }} \
